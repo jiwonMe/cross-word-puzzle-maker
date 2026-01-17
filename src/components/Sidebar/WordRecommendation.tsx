@@ -40,8 +40,9 @@ export function WordRecommendation({ onFetchRecommendations }: WordRecommendatio
     );
   }, [puzzle]);
 
-  const isFirstWord = existingWords.size === 0;
-  const minWordLength = isFirstWord ? 3 : 2;
+  const minWordLength = useMemo(() => {
+    return existingWords.size === 0 ? 3 : 2;
+  }, [existingWords]);
 
   useEffect(() => {
     if (!puzzle || wordCells.length === 0) {

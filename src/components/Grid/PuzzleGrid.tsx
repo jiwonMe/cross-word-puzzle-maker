@@ -263,6 +263,11 @@ export function PuzzleGrid() {
     }
   }, [selection.position]);
 
+  const lineCells = useMemo(() => {
+    if (!puzzle || !selection.position) return [];
+    return getLineCells(puzzle.grid, selection.position, selection.direction);
+  }, [puzzle, selection.position, selection.direction]);
+
   if (!puzzle) {
     return (
       <div className="flex items-center justify-center h-full text-gray-500">
@@ -270,11 +275,6 @@ export function PuzzleGrid() {
       </div>
     );
   }
-
-  const lineCells = useMemo(() => {
-    if (!puzzle || !selection.position) return [];
-    return getLineCells(puzzle.grid, selection.position, selection.direction);
-  }, [puzzle, selection.position, selection.direction]);
 
   const isInWordCells = (row: number, col: number) => {
     return wordCells.some((c) => c.row === row && c.col === col);
