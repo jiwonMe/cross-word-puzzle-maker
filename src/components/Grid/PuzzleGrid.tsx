@@ -12,6 +12,7 @@ export function PuzzleGrid() {
   const composingPositionRef = useRef<Position | null>(null);
   const composingValueRef = useRef<string>('');
   const skipMoveOnCompositionEndRef = useRef(false);
+  const justFinishedComposingRef = useRef(false);
 
   const {
     puzzle,
@@ -20,17 +21,24 @@ export function PuzzleGrid() {
     selectCell,
     toggleBlackCell,
     setCellValue,
+    clearCellValue,
     moveToNextCell,
+    moveToNextCellAndActivate,
     moveToPrevCell,
+    moveToPrevCellAndClear,
     moveInDirection,
     toggleDirection,
     finalizeEmptyCells,
     commitComposingAndFinalize,
   } = usePuzzleStore();
 
-  const commitComposingValue = useCallback(() => {
+  const commitComposingValue = useCallback((skipActivateNext?: boolean) => {
+    console.log('[commitComposingValue] called, skipActivateNext:', skipActivateNext);
+    console.log('[commitComposingValue] composingValue:', composingValue);
+    console.log('[commitComposingValue] composingPositionRef:', composingPositionRef.current);
     if (composingValue && composingPositionRef.current) {
-      setCellValue(composingPositionRef.current, composingValue);
+      console.log('[commitComposingValue] calling setCellValue');
+      setCellValue(composingPositionRef.current, composingValue, skipActivateNext);
     }
     setIsComposing(false);
     setComposingValue('');
@@ -54,15 +62,47 @@ export function PuzzleGrid() {
         return;
       }
 
-      if (isComposing) return;
-
       if (key === 'Tab') {
         e.preventDefault();
         e.stopPropagation();
         skipMoveOnCompositionEndRef.current = true;
-        toggleDirection();
+        if (isComposing) {
+          toggleDirection();
+          commitComposingValue(false);
+          justFinishedComposingRef.current = true;
+          moveToNextCell();
+        } else {
+          toggleDirection();
+        }
         return;
       }
+
+      if (key === 'Enter') {
+        e.preventDefault();
+        console.log('[keydown Enter] isComposing:', isComposing, 'position:', selection.position);
+        console.log('[keydown Enter] justFinishedComposing:', justFinishedComposingRef.current);
+        
+        if (justFinishedComposingRef.current) {
+          console.log('[keydown Enter] ignoring duplicate Enter after composition');
+          justFinishedComposingRef.current = false;
+          return;
+        }
+        
+        skipMoveOnCompositionEndRef.current = true;
+        console.log('[keydown Enter] set skipMove = true');
+        if (isComposing) {
+          console.log('[keydown Enter] toggleDirection first, then commitComposingValue');
+          toggleDirection();
+          commitComposingValue(false);
+          justFinishedComposingRef.current = true;
+          moveToNextCell();
+        } else {
+          toggleDirection();
+        }
+        return;
+      }
+
+      if (isComposing) return;
 
       if (key === 'ArrowUp') {
         e.preventDefault();
@@ -88,42 +128,63 @@ export function PuzzleGrid() {
       if (key === 'Backspace') {
         e.preventDefault();
         const { row, col } = selection.position;
-        if (puzzle.grid[row][col].value) {
-          setCellValue(selection.position, '');
+        const currentCell = puzzle.grid[row][col];
+        console.log('[Backspace] position:', { row, col });
+        console.log('[Backspace] currentCell:', currentCell);
+        console.log('[Backspace] currentCell.value:', JSON.stringify(currentCell.value));
+        console.log('[Backspace] hasValue:', !!currentCell.value);
+        if (currentCell.value) {
+          console.log('[Backspace] -> clearCellValue');
+          clearCellValue(selection.position);
         } else {
-          moveToPrevCell();
+          console.log('[Backspace] -> moveToPrevCellAndClear');
+          moveToPrevCellAndClear();
         }
         return;
       }
 
       if (key === 'Delete') {
         e.preventDefault();
-        setCellValue(selection.position, '');
-        return;
-      }
-
-      if (key === 'Enter') {
-        e.preventDefault();
-        skipMoveOnCompositionEndRef.current = true;
-        toggleDirection();
+        clearCellValue(selection.position);
         return;
       }
 
       if (/^[a-zA-Z]$/.test(key)) {
         e.preventDefault();
         setCellValue(selection.position, key.toUpperCase());
-        moveToNextCell();
+        requestAnimationFrame(() => {
+          if (!skipMoveOnCompositionEndRef.current) {
+            moveToNextCell();
+          }
+          skipMoveOnCompositionEndRef.current = false;
+        });
       }
     },
-    [puzzle, selection, isComposing, commitComposingValue, toggleDirection, moveInDirection, setCellValue, moveToNextCell, moveToPrevCell]
+    [puzzle, selection, isComposing, commitComposingValue, toggleDirection, moveInDirection, setCellValue, clearCellValue, moveToNextCell, moveToPrevCell, moveToPrevCellAndClear]
   );
 
   const handleCompositionStart = useCallback(() => {
+    console.log('[compositionStart] called, position:', selection.position);
+    
+    let targetPosition = selection.position;
+    
+    if (puzzle && selection.position) {
+      const currentCell = puzzle.grid[selection.position.row]?.[selection.position.col];
+      if (currentCell && currentCell.value && !currentCell.isBlack) {
+        console.log('[compositionStart] current cell has value, moving to next and activating');
+        moveToNextCellAndActivate();
+        targetPosition = usePuzzleStore.getState().selection.position;
+        console.log('[compositionStart] new position:', targetPosition);
+      }
+    }
+    
     setIsComposing(true);
     setComposingValue('');
     composingValueRef.current = '';
-    composingPositionRef.current = selection.position;
-  }, [selection.position]);
+    composingPositionRef.current = targetPosition;
+    skipMoveOnCompositionEndRef.current = false;
+    justFinishedComposingRef.current = false;
+  }, [puzzle, selection.position, moveToNextCellAndActivate]);
 
   const handleCompositionUpdate = useCallback(
     (e: React.CompositionEvent<HTMLInputElement>) => {
@@ -132,6 +193,9 @@ export function PuzzleGrid() {
         const lastChar = value.slice(-1);
         setComposingValue(lastChar);
         composingValueRef.current = lastChar;
+      } else {
+        setComposingValue('');
+        composingValueRef.current = '';
       }
     },
     []
@@ -139,7 +203,16 @@ export function PuzzleGrid() {
 
   const handleCompositionEnd = useCallback(
     (e: React.CompositionEvent<HTMLInputElement>) => {
+      console.log('[compositionEnd] called, e.data:', e.data);
+      console.log('[compositionEnd] skipMoveRef at start:', skipMoveOnCompositionEndRef.current);
+      console.log('[compositionEnd] composingPositionRef:', composingPositionRef.current);
+      console.log('[compositionEnd] composingValueRef:', composingValueRef.current);
+
+      const shouldSkip = skipMoveOnCompositionEndRef.current;
+      skipMoveOnCompositionEndRef.current = false;
+
       if (pendingClickRef.current) {
+        console.log('[compositionEnd] pendingClick, returning early');
         setIsComposing(false);
         setComposingValue('');
         composingValueRef.current = '';
@@ -158,21 +231,26 @@ export function PuzzleGrid() {
       composingValueRef.current = '';
       composingPositionRef.current = null;
 
-      if (!targetPosition) return;
+      if (!targetPosition) {
+        console.log('[compositionEnd] no targetPosition, returning');
+        return;
+      }
 
-      const value = e.data || savedComposingValue;
+      if (shouldSkip) {
+        console.log('[compositionEnd] shouldSkip=true, skipping setCellValue');
+        if (inputRef.current) {
+          inputRef.current.value = '';
+        }
+        return;
+      }
+
+      const value = e.data ?? savedComposingValue;
+      console.log('[compositionEnd] value to save:', value, 'targetPosition:', targetPosition);
+      
       if (value && value.length > 0) {
         const lastChar = value.slice(-1);
-        setCellValue(targetPosition, lastChar);
-        
-        const shouldSkipMove = skipMoveOnCompositionEndRef.current;
-        skipMoveOnCompositionEndRef.current = false;
-        
-        if (!shouldSkipMove &&
-            selection.position?.row === targetPosition.row && 
-            selection.position?.col === targetPosition.col) {
-          moveToNextCell();
-        }
+        console.log('[compositionEnd] calling setCellValue with:', lastChar);
+        setCellValue(targetPosition, lastChar, true);
       }
 
       if (inputRef.current) {
@@ -184,7 +262,14 @@ export function PuzzleGrid() {
 
   const handleInput = useCallback(
     (e: React.FormEvent<HTMLInputElement>) => {
+      console.log('[handleInput] called, isComposing:', isComposing, 'value:', e.currentTarget.value);
+      console.log('[handleInput] justFinishedComposing:', justFinishedComposingRef.current);
       if (isComposing) return;
+      if (justFinishedComposingRef.current) {
+        console.log('[handleInput] ignoring input after composition');
+        e.currentTarget.value = '';
+        return;
+      }
       if (!selection.position) return;
 
       const input = e.currentTarget;
@@ -192,7 +277,9 @@ export function PuzzleGrid() {
 
       if (value && value.length > 0) {
         const lastChar = value.slice(-1);
+        console.log('[handleInput] lastChar:', lastChar);
         if (/^[가-힣]$/.test(lastChar)) {
+          console.log('[handleInput] calling setCellValue');
           setCellValue(selection.position, lastChar);
           moveToNextCell();
         }
@@ -236,6 +323,7 @@ export function PuzzleGrid() {
   );
 
   const handleBlur = useCallback(() => {
+    console.log('[handleBlur] called, pendingClick:', pendingClickRef.current);
     if (pendingClickRef.current) {
       return;
     }
@@ -244,6 +332,7 @@ export function PuzzleGrid() {
     const currentComposingPosition = composingPositionRef.current;
     
     if (isComposing && currentComposingValue && currentComposingPosition) {
+      console.log('[handleBlur] -> commitComposingAndFinalize');
       commitComposingAndFinalize(currentComposingPosition, currentComposingValue);
       setIsComposing(false);
       setComposingValue('');
@@ -253,6 +342,7 @@ export function PuzzleGrid() {
         inputRef.current.value = '';
       }
     } else {
+      console.log('[handleBlur] -> finalizeEmptyCells');
       finalizeEmptyCells();
     }
   }, [isComposing, commitComposingAndFinalize, finalizeEmptyCells]);

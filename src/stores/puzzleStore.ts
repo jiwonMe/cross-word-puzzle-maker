@@ -15,9 +15,12 @@ interface PuzzleState {
   selectCell: (position: Position, skipFinalize?: boolean) => void;
   toggleDirection: () => void;
   toggleBlackCell: (position: Position) => void;
-  setCellValue: (position: Position, value: string) => void;
+  setCellValue: (position: Position, value: string, skipActivateNext?: boolean) => void;
   moveToNextCell: () => void;
+  moveToNextCellAndActivate: () => void;
   moveToPrevCell: () => void;
+  moveToPrevCellAndClear: () => void;
+  clearCellValue: (position: Position) => void;
   moveInDirection: (dir: 'up' | 'down' | 'left' | 'right') => void;
   applyWord: (word: string) => void;
   updateWordClue: (wordId: string, clue: string) => void;
@@ -111,11 +114,13 @@ export const usePuzzleStore = create<PuzzleState>((set, get) => ({
 
   selectCell: (position, skipFinalize?: boolean) => {
     const { puzzle, selection } = get();
+    console.log('[selectCell] called, position:', position, 'skipFinalize:', skipFinalize);
     if (!puzzle) return;
 
     let currentGrid = puzzle.grid;
     
     if (!skipFinalize) {
+      console.log('[selectCell] converting empty cells to black');
       currentGrid = convertEmptyCellsToBlack(currentGrid, position);
     }
 
@@ -176,9 +181,11 @@ export const usePuzzleStore = create<PuzzleState>((set, get) => ({
 
   toggleDirection: () => {
     const { puzzle, selection } = get();
+    console.log('[toggleDirection] called, position:', selection.position, 'direction:', selection.direction);
     if (!puzzle || !selection.position) return;
 
     const newDirection = selection.direction === 'across' ? 'down' : 'across';
+    console.log('[toggleDirection] newDirection:', newDirection);
     const wordCells = getWordCells(puzzle.grid, selection.position, newDirection);
 
     set({
@@ -238,8 +245,10 @@ export const usePuzzleStore = create<PuzzleState>((set, get) => ({
     }
   },
 
-  setCellValue: (position, value) => {
+  setCellValue: (position, value, skipActivateNext) => {
     const { puzzle, selection } = get();
+    console.log('[setCellValue] called, position:', position, 'value:', value, 'skipActivateNext:', skipActivateNext);
+    console.log('[setCellValue] current selection:', selection);
     if (!puzzle) return;
 
     const cell = puzzle.grid[position.row]?.[position.col];
@@ -257,9 +266,11 @@ export const usePuzzleStore = create<PuzzleState>((set, get) => ({
       })
     );
 
-    if (!shouldBecomeBlack) {
+    if (!shouldBecomeBlack && !skipActivateNext) {
       const nextPos = getNextCellPosition(puzzle.grid, position, selection.direction);
+      console.log('[setCellValue] nextPos:', nextPos);
       if (nextPos && puzzle.grid[nextPos.row][nextPos.col].isBlack) {
+        console.log('[setCellValue] activating next cell');
         newGrid = newGrid.map((row, rowIndex) =>
           row.map((c, colIndex) => {
             if (rowIndex === nextPos.row && colIndex === nextPos.col) {
@@ -313,6 +324,49 @@ export const usePuzzleStore = create<PuzzleState>((set, get) => ({
     }
   },
 
+  moveToNextCellAndActivate: () => {
+    const { puzzle, selection } = get();
+    if (!puzzle || !selection.position) return;
+
+    const nextPos = getNextCellPosition(puzzle.grid, selection.position, selection.direction);
+    if (!nextPos) return;
+
+    const nextCell = puzzle.grid[nextPos.row]?.[nextPos.col];
+    if (!nextCell) return;
+
+    if (nextCell.isBlack) {
+      const newGrid = puzzle.grid.map((row, rowIndex) =>
+        row.map((c, colIndex) => {
+          if (rowIndex === nextPos.row && colIndex === nextPos.col) {
+            return { ...c, isBlack: false };
+          }
+          return c;
+        })
+      );
+
+      const numberedGrid = assignCellNumbers(newGrid);
+      const words = extractWords(numberedGrid);
+      const wordCells = getWordCells(numberedGrid, nextPos, selection.direction);
+
+      set({
+        puzzle: {
+          ...puzzle,
+          grid: numberedGrid,
+          words,
+          updatedAt: new Date().toISOString(),
+        },
+        selection: { ...selection, position: nextPos },
+        wordCells,
+      });
+    } else {
+      const wordCells = getWordCells(puzzle.grid, nextPos, selection.direction);
+      set({
+        selection: { ...selection, position: nextPos },
+        wordCells,
+      });
+    }
+  },
+
   moveToPrevCell: () => {
     const { puzzle, selection } = get();
     if (!puzzle || !selection.position) return;
@@ -325,6 +379,82 @@ export const usePuzzleStore = create<PuzzleState>((set, get) => ({
         wordCells,
       });
     }
+  },
+
+  moveToPrevCellAndClear: () => {
+    const { puzzle, selection } = get();
+    console.log('[moveToPrevCellAndClear] called');
+    console.log('[moveToPrevCellAndClear] selection.position:', selection.position);
+    if (!puzzle || !selection.position) return;
+
+    const currentPos = selection.position;
+    const prevPos = getPrevCell(puzzle.grid, currentPos, selection.direction);
+    console.log('[moveToPrevCellAndClear] prevPos:', prevPos);
+    if (!prevPos) return;
+
+    console.log('[moveToPrevCellAndClear] prevCell before:', puzzle.grid[prevPos.row][prevPos.col]);
+
+    // 현재 셀(빈 셀)을 검은 칸으로 만들고, 이전 셀의 값을 지움
+    const newGrid = puzzle.grid.map((row, rowIndex) =>
+      row.map((c, colIndex) => {
+        // 현재 셀 (빈 셀) → 검은 칸으로
+        if (rowIndex === currentPos.row && colIndex === currentPos.col) {
+          return { ...c, value: '', isBlack: true };
+        }
+        // 이전 셀 → 값만 지움
+        if (rowIndex === prevPos.row && colIndex === prevPos.col) {
+          return { ...c, value: '' };
+        }
+        return c;
+      })
+    );
+
+    console.log('[moveToPrevCellAndClear] currentCell after (should be black):', newGrid[currentPos.row][currentPos.col]);
+    console.log('[moveToPrevCellAndClear] prevCell after clear:', newGrid[prevPos.row][prevPos.col]);
+
+    const numberedGrid = assignCellNumbers(newGrid);
+    const words = extractWords(numberedGrid);
+    const wordCells = getWordCells(numberedGrid, prevPos, selection.direction);
+
+    console.log('[moveToPrevCellAndClear] final prevCell:', numberedGrid[prevPos.row][prevPos.col]);
+
+    set({
+      puzzle: { ...puzzle, grid: numberedGrid, words, updatedAt: new Date().toISOString() },
+      selection: { ...selection, position: prevPos },
+      wordCells,
+    });
+  },
+
+  clearCellValue: (position) => {
+    const { puzzle, selection } = get();
+    console.log('[clearCellValue] called, position:', position);
+    if (!puzzle) return;
+
+    const cell = puzzle.grid[position.row]?.[position.col];
+    console.log('[clearCellValue] cell before:', cell);
+    if (!cell || cell.isBlack) return;
+
+    const newGrid = puzzle.grid.map((row, rowIndex) =>
+      row.map((c, colIndex) => {
+        if (rowIndex === position.row && colIndex === position.col) {
+          return { ...c, value: '' };
+        }
+        return c;
+      })
+    );
+
+    console.log('[clearCellValue] cell after clear:', newGrid[position.row][position.col]);
+
+    const numberedGrid = assignCellNumbers(newGrid);
+    const words = extractWords(numberedGrid);
+    const wordCells = getWordCells(numberedGrid, position, selection.direction);
+
+    console.log('[clearCellValue] final cell:', numberedGrid[position.row][position.col]);
+
+    set({
+      puzzle: { ...puzzle, grid: numberedGrid, words, updatedAt: new Date().toISOString() },
+      wordCells,
+    });
   },
 
   moveInDirection: (dir) => {
@@ -351,10 +481,55 @@ export const usePuzzleStore = create<PuzzleState>((set, get) => ({
     }
 
     const newCell = puzzle.grid[newRow]?.[newCol];
-    if (newCell && !newCell.isBlack) {
-      const wordCells = getWordCells(puzzle.grid, { row: newRow, col: newCol }, selection.direction);
+    if (!newCell) return;
+
+    const currentCell = puzzle.grid[row][col];
+    const currentCellIsEmpty = !currentCell.isBlack && !currentCell.value;
+    const newPosition = { row: newRow, col: newCol };
+
+    let newGrid = puzzle.grid;
+
+    if (currentCellIsEmpty) {
+      newGrid = newGrid.map((r, rowIndex) =>
+        r.map((c, colIndex) => {
+          if (rowIndex === row && colIndex === col) {
+            return { ...c, isBlack: true };
+          }
+          return c;
+        })
+      );
+    }
+
+    if (newCell.isBlack) {
+      newGrid = newGrid.map((r, rowIndex) =>
+        r.map((c, colIndex) => {
+          if (rowIndex === newRow && colIndex === newCol) {
+            return { ...c, isBlack: false };
+          }
+          return c;
+        })
+      );
+    }
+
+    if (currentCellIsEmpty || newCell.isBlack) {
+      const numberedGrid = assignCellNumbers(newGrid);
+      const words = extractWords(numberedGrid);
+      const wordCells = getWordCells(numberedGrid, newPosition, selection.direction);
+
       set({
-        selection: { ...selection, position: { row: newRow, col: newCol } },
+        puzzle: {
+          ...puzzle,
+          grid: numberedGrid,
+          words,
+          updatedAt: new Date().toISOString(),
+        },
+        selection: { ...selection, position: newPosition },
+        wordCells,
+      });
+    } else {
+      const wordCells = getWordCells(puzzle.grid, newPosition, selection.direction);
+      set({
+        selection: { ...selection, position: newPosition },
         wordCells,
       });
     }
@@ -447,6 +622,8 @@ export const usePuzzleStore = create<PuzzleState>((set, get) => ({
 
   finalizeEmptyCells: (excludePosition?: Position) => {
     const { puzzle } = get();
+    console.log('[finalizeEmptyCells] called, excludePosition:', excludePosition);
+    console.trace('[finalizeEmptyCells] stack trace');
     if (!puzzle) return;
 
     const newGrid = convertEmptyCellsToBlack(puzzle.grid, excludePosition);
