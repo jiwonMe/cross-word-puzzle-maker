@@ -7,21 +7,23 @@ interface CellProps {
   isInWord: boolean;
   isInLine: boolean;
   composingValue?: string;
-  onMouseDown: () => void;
+  onTouchStart: (e: React.TouchEvent) => void;
+  onMouseDown: (e: React.MouseEvent) => void;
   onContextMenu: (e: React.MouseEvent) => void;
 }
 
-export function Cell({ cell, isSelected, isInWord, isInLine, composingValue, onMouseDown, onContextMenu }: CellProps) {
+export function Cell({ cell, isSelected, isInWord, isInLine, composingValue, onTouchStart, onMouseDown, onContextMenu }: CellProps) {
   if (cell.isBlack) {
     return (
       <div
         className={clsx(
-          'w-[var(--cell-size)] h-[var(--cell-size)] cursor-pointer',
+          'w-[var(--cell-size)] h-[var(--cell-size)] cursor-pointer border border-gray-600 select-none touch-manipulation',
           {
             'bg-green-900': isInLine,
             'bg-gray-800': !isInLine,
           }
         )}
+        onTouchStart={onTouchStart}
         onMouseDown={onMouseDown}
         onContextMenu={onContextMenu}
       />
@@ -33,7 +35,7 @@ export function Cell({ cell, isSelected, isInWord, isInLine, composingValue, onM
   return (
     <div
       className={clsx(
-        'relative w-[var(--cell-size)] h-[var(--cell-size)] border border-gray-300 cursor-pointer transition-colors',
+        'relative w-[var(--cell-size)] h-[var(--cell-size)] border border-gray-300 cursor-pointer transition-colors select-none touch-manipulation',
         'flex items-center justify-center',
         {
           'bg-green-500 border-green-500': isSelected,
@@ -41,6 +43,7 @@ export function Cell({ cell, isSelected, isInWord, isInLine, composingValue, onM
           'bg-white hover:bg-gray-50': !isSelected && !isInWord,
         }
       )}
+      onTouchStart={onTouchStart}
       onMouseDown={onMouseDown}
       onContextMenu={onContextMenu}
     >

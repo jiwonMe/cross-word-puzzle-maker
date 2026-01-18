@@ -292,12 +292,15 @@ export function PuzzleGrid() {
 
   const pendingClickRef = useRef<Position | null>(null);
 
-  const handleCellMouseDown = useCallback(
-    (row: number, col: number) => {
+  const handleCellInteraction = useCallback(
+    (row: number, col: number, e?: React.TouchEvent | React.MouseEvent) => {
+      if (e) {
+        e.preventDefault();
+      }
+      
       const nextPosition = { row, col };
       pendingClickRef.current = nextPosition;
       
-      // Use ref values for immediate access (avoids stale closure issues)
       const currentComposingValue = composingValueRef.current;
       const currentComposingPosition = composingPositionRef.current;
       
@@ -381,7 +384,15 @@ export function PuzzleGrid() {
       <input
         ref={inputRef}
         type="text"
-        className="absolute opacity-0 w-0 h-0 pointer-events-none"
+        inputMode="text"
+        enterKeyHint="next"
+        className="absolute left-0 top-0 opacity-0 pointer-events-none"
+        style={{
+          width: '1px',
+          height: '1px',
+          fontSize: '16px', // Prevents iOS zoom on focus
+          transform: 'translateX(-9999px)',
+        }}
         onKeyDown={handleKeyDown}
         onCompositionStart={handleCompositionStart}
         onCompositionUpdate={handleCompositionUpdate}
@@ -412,7 +423,8 @@ export function PuzzleGrid() {
                   isInWord={isInWord}
                   isInLine={isInLine}
                   composingValue={isComposingCell ? composingValue : undefined}
-                  onMouseDown={() => handleCellMouseDown(rowIndex, colIndex)}
+                  onTouchStart={(e) => handleCellInteraction(rowIndex, colIndex, e)}
+                  onMouseDown={(e) => handleCellInteraction(rowIndex, colIndex, e)}
                   onContextMenu={(e) => {
                     e.preventDefault();
                     if (isComposing) {
